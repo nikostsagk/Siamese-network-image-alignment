@@ -3,7 +3,6 @@ import torch as t
 from torchvision.io import read_image
 from torchvision.transforms import Resize
 
-from average_embedding import FRACTION, IMAGE_WIDTH
 from model import get_parametrized_model, load_model
 from utils import interpolate_histogram, plot_displacement
 

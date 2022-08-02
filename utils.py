@@ -73,7 +73,7 @@ def plot_samples(source, target, heatmap, prediction=None, name=0, dir="results/
     axarr[2].grid()
 
     if prediction is not None:
-        interp_pred = interp_hist(source_width, prediction)
+        interp_pred = interpolate_histogram(source_width, prediction)
         axarr[2].plot(np.arange(-source_width/2, source_width/2), interp_pred, label="prediction")
 
     axarr[2].legend()

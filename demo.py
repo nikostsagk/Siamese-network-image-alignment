@@ -1,70 +1,56 @@
-import torch
-import torch as t
-from model import Siamese, load_model, get_custom_CNN, jit_load, get_parametrized_model
-from torchvision.transforms import Resize
-from utils import get_shift, plot_samples, plot_displacement
 import numpy as np
-from scipy import interpolate
+import torch as t
 from torchvision.io import read_image
+from torchvision.transforms import Resize
 
+from average_embedding import FRACTION, IMAGE_WIDTH
+from model import get_parametrized_model, load_model
+from utils import interpolate_histogram, plot_displacement
 
 device = t.device("cuda") if t.cuda.is_available() else t.device("cpu")
-# device = t.device("cpu")
 
-
-# Set this according to your input
-IMAGE_WIDTH = 1024
-IMAGE_HEIGHT = 384
-MODEL_PATH = "./model_siam.pt"
-IMG1_PATH = "./images/1.jpg"
-IMG2_PATH = "./images/2.jpg"
+#MODEL_PATH = "./model_siam.pt"
+MODEL_PATH = "/home/nikos/shared/results_v1/models/siam_109.pt"
+IMG1_PATH = "../shared/data_collection/teach_and_repeat_2022_70cm/62da663663002c794c29b6cd/t0-r2-c0_S.png"
+IMG2_PATH = "../shared/data_collection/teach_and_repeat_2022_70cm/62da663663002c794c29b6cd/t1-r1-c0_S.png"
 # -------------------------------
 
 
-WIDTH = 512  # - 8
-PAD = 31
-FRACTION = 8
-OUTPUT_SIZE = WIDTH//FRACTION
-CROP_SIZE = WIDTH - FRACTION
-LAYER_POOL = False
-FILTER_SIZE = 3
-EMB_CHANNELS = 256
-RESIDUALS = 0
-
-size_frac = WIDTH / IMAGE_WIDTH
-transform = Resize(int(IMAGE_HEIGHT * size_frac))
-fraction_resized = int(FRACTION/size_frac)
+WIDTH = 512
+OUTPUT_SIZE = 64
+FRACTION = int(WIDTH / OUTPUT_SIZE)
+PAD = int((OUTPUT_SIZE - 2) / 2)
 
 
 def run_demo():
+    # Read images (they should be of the same shape)
+    source, target = read_image(IMG1_PATH) / 255.0, read_image(IMG2_PATH) / 255.0
+    transform = Resize(int(source.shape[1] * WIDTH / source.shape[2]))
+    source, target = transform(source).to(device), transform(target).to(device)[..., FRACTION//2:-FRACTION//2]
 
-    model = get_parametrized_model(LAYER_POOL, FILTER_SIZE, EMB_CHANNELS, RESIDUALS, PAD, device)
+    model = get_parametrized_model(False, 3, 256, 0, PAD, device)
     model = load_model(model, MODEL_PATH)
 
     model.eval()
-    with torch.no_grad():
-        source, target = transform(read_image(IMG1_PATH) / 255.0).to(device),\
-                         transform(read_image(IMG2_PATH) / 255.0).to(device)[..., FRACTION//2:-FRACTION//2]
+    with t.no_grad():
+        print(f"Source img: {source.shape}, Target img: {target.shape}")
 
-        print(source.shape, target.shape)
         histogram = model(source.unsqueeze(0), target.unsqueeze(0), padding=PAD)
         histogram = (histogram - t.mean(histogram)) / t.std(histogram)
-        histogram = t.softmax(histogram, dim=1)
+        histogram = t.softmax(histogram, dim=1).squeeze(0).cpu()
 
         # visualize:
-        shift_hist = histogram.cpu()
-        f = interpolate.interp1d(np.linspace(0, IMAGE_WIDTH - fraction_resized, OUTPUT_SIZE), shift_hist, kind="cubic")
-        interpolated = f(np.arange(IMAGE_WIDTH - 16))
-        ret = -(np.argmax(interpolated) - (IMAGE_WIDTH - 16) // 2.0)
+        interp_hist = interpolate_histogram(WIDTH, histogram)
+        interp_hist_idx = np.argmax(interp_hist)
+        predicted_shift = -(WIDTH//2 - interp_hist_idx)
+
+        print("Estimated displacement is", predicted_shift, "pixels.")
         plot_displacement(source.squeeze(0).cpu(),
                           target.squeeze(0).cpu(),
-                          shift_hist.squeeze(0).cpu(),
+                          histogram,
                           displacement=None,
-                          importance=None,
                           name="result",
                           dir="./")
-        print("Estimated displacement is", ret, "pixels.")
-
 
 if __name__ == '__main__':
     run_demo()

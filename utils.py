@@ -1,31 +1,12 @@
 import os
-from typing import Dict, Optional
-import matplotlib.pyplot as plt
-import torch
-import torch as t
-from torch.nn import functional as F
-import numpy as np
 from pathlib import Path
+
 import kornia as K
-import random
-from torchvision.utils import save_image
+import matplotlib.pyplot as plt
+import numpy as np
+import torch as t
 from scipy import interpolate
-
-
-# class GANAugemntation(t.nn.Module):
-#
-#     def __init__(self, p=0.5):
-#         super(GANAugemntation, self).__init__()
-#         self.augmentor = StyleAugmentor()
-#         self.p = p
-#
-#     def forward(self, x):
-#         with torch.no_grad():
-#             if random.random() < self.p and x.size(-1) > 40:
-#                 return self.augmentor(x, alpha=0.25)
-#             else:
-#                 return x
-
+from torchvision.utils import save_image
 
 AUG_P = 0.1
 
@@ -34,101 +15,108 @@ batch_augmentations = t.nn.Sequential(
                                 t.tensor([0.0, 0.15]),
                                 align_corners=False, p=AUG_P),
     K.augmentation.RandomBoxBlur(p=AUG_P),
-    K.augmentation.RandomChannelShuffle(p=AUG_P),
+    # K.augmentation.RandomChannelShuffle(p=AUG_P),
     K.augmentation.RandomPerspective(distortion_scale=0.05, p=AUG_P),
     # K.augmentation.RandomPosterize(p=0.2),    CPU only
+    K.augmentation.RandomRotation(degrees=(-10.0, 10.0), p=AUG_P, keepdim=True),
     K.augmentation.RandomSharpness(p=AUG_P),
     K.augmentation.RandomSolarize(p=AUG_P),
     K.augmentation.ColorJitter(0.1, 0.1, 0.1, 0.1, p=AUG_P),
     K.augmentation.RandomGaussianNoise(std=0.1, p=AUG_P),
     K.augmentation.RandomElasticTransform(p=AUG_P),
     # K.augmentation.RandomEqualize(p=0.2),     CPU only
-    K.augmentation.RandomGrayscale(p=AUG_P),
+    # K.augmentation.RandomGrayscale(p=AUG_P),
     # K.augmentation.RandomErasing(p=AUG_P, scale=(0.1, 0.5))
 )
 
+def interpolate_histogram(image_size, histogram):
+    histogram_size = histogram.size(-1)
+    x = np.linspace(0, image_size - 1, image_size)
+    xp = np.linspace(0, image_size - 1, histogram_size)
+    y = np.interp(x, xp, histogram.numpy())
+    return y
 
-def plot_samples(source, target, heatmap, prediction=None, name=0, dir="results/0/"):
-    if prediction is None:
-        f, axarr = plt.subplots(2)
-        target_fullsize = t.zeros_like(source)
-        target_width = target.size(-1)
-        source_width = source.size(-1)
-        heatmap_width = heatmap.size(-1)
-        heatmap_idx = t.argmax(heatmap)
-        target_fullsize_start = int(heatmap_idx * (source_width/heatmap_width) - target_width//2)
-        target_fullsize[:, :, max(target_fullsize_start, 0):target_fullsize_start+target_width] = target
-        axarr[0].imshow(source.permute(1, 2, 0))
-        axarr[1].imshow(target_fullsize.permute(1, 2, 0))
-        plt.show()
-    else:
-        f, axarr = plt.subplots(3)
-        target_fullsize = t.zeros_like(source)
-        target_width = target.size(-1)
-        source_width = source.size(-1)
-        heatmap_width = heatmap.size(-1)
-        heatmap_idx = t.argmax(heatmap)
-        fx = interpolate.interp1d(np.linspace(0, 512, 64), heatmap, kind="linear")
-        heatmap_plot = fx(np.arange(512))
-        target_fullsize_start = int(heatmap_idx * (source_width/heatmap_width) - target_width//2)
-        target_fullsize[:, :, max(target_fullsize_start, 0):max(target_fullsize_start, 0)+target_width] = target
-        axarr[0].imshow(source.permute(1, 2, 0), aspect="auto")
-        axarr[1].imshow(target_fullsize.permute(1, 2, 0), aspect="auto")
-        resized_indices = np.arange(0, prediction.size(-1)) * (source_width/heatmap_width)
-        pred = np.interp(np.arange(0, source_width), resized_indices, prediction.numpy())
-        predicted_max = np.argmax(pred)
-        # axarr[2].axvline(x=predicted_max, ymin=0, ymax=1, c="r")
-        axarr[2].plot(np.arange(-256, 256), pred)
-        axarr[2].plot(np.arange(-256, 256), heatmap_plot)
-        axarr[2].set_xlim((0, source_width - 1))
-        axarr[2].set_xlabel("Displacement [px]")
-        axarr[2].set_ylabel("Likelihood [-]")
-        axarr[2].set_xlim((-256, 256))
-        axarr[2].grid()
-        axarr[2].legend(["prediction", "target"])
-        f.suptitle("Training example")
-        f.tight_layout()
+# # not sure if this works correctly
+# def interpolate_histogram(image_size, histogram):
+#     histogram_size = histogram.size(-1)
+#     fx = interpolate.interp1d(np.linspace(0, image_size, histogram_size), histogram, kind="linear")
+#     y = fx(np.arange(image_size))
+#     return y
+
+def plot_displacement2(source, target, displacement):
+    f, axarr = plt.subplots(2)
+    axarr[0].imshow(source.permute(1, 2, 0), aspect="auto")
+    axarr[1].imshow(target.permute(1, 2, 0), aspect="auto")
+    f.suptitle(f"Displacement: {displacement}px")
+    plt.show()
+
+def plot_samples(source, target, heatmap, prediction=None, name=0, dir="results/0/", save=False):
+    target_fullsize = t.zeros_like(source)
+    target_width = target.size(-1)
+    source_width = source.size(-1)
+    heatmap_width = heatmap.size(-1)
+
+    interp_hist = interpolate_histogram(source_width, heatmap)
+    interp_hist_idx = np.argmax(interp_hist)
+    target_fullsize_start = int(interp_hist_idx - target_width//2)
+    target_fullsize_start = max(0, min(target_fullsize_start, source_width - target_width)) # clamp. ideally it should never clamp anything
+    target_fullsize[:, :, target_fullsize_start:target_fullsize_start + target_width] = target
+
+    f, axarr = plt.subplots(3)
+    axarr[0].imshow(source.permute(1, 2, 0), aspect="auto")
+    axarr[1].imshow(target_fullsize.permute(1, 2, 0), aspect="auto")
+    axarr[2].plot(np.linspace(-source_width/2, source_width/2, source_width), interp_hist, label="target")
+    axarr[2].set_xlim((0, source_width - 1))
+    axarr[2].set_xlabel("Displacement [px]")
+    axarr[2].set_ylabel("Likelihood [-]")
+    axarr[2].set_xlim((-source_width//2, source_width//2))
+    axarr[2].grid()
+
+    if prediction is not None:
+        interp_pred = interp_hist(source_width, prediction)
+        axarr[2].plot(np.arange(-source_width/2, source_width/2), interp_pred, label="prediction")
+
+    axarr[2].legend()
+    f.suptitle(f"{name}")
+    f.tight_layout()
+    if save:
         Path(dir).mkdir(parents=True, exist_ok=True)
-        plt.savefig(dir + str(name) + "png")
-        plt.close()
-
-
-def plot_displacement(source, target, prediction, displacement=None, importance=None, name=0, dir="results/0/"):
-    if importance is None:
-        f, axarr = plt.subplots(3)
+        plt.savefig(dir+name)
     else:
-        f, axarr = plt.subplots(4)
+        plt.show()
+    plt.close()
+
+
+def plot_displacement(source, target, prediction, displacement=None, name=0, dir="results/0/", save=False):
+    # TODO: revisit this
     heatmap_width = prediction.size(-1)
     source_width = source.size(-1)
-    resized_indices = np.arange(0, prediction.size(-1)) * (source_width / heatmap_width)
-    pred = np.interp(np.arange(0, source_width), resized_indices, prediction.numpy())
-    predicted_max = np.argmax(pred)
-    predicted_shift = -(256 - predicted_max)
-    if displacement is not None:
-        displacement = int(displacement)
+    interp_pred = interpolate_histogram(source_width, prediction)
+    interp_pred_idx = np.argmax(interp_pred)
+    predicted_shift = -(source_width//2 - interp_pred_idx)
 
-    target_shifted = t.roll(target, predicted_shift, -1)
+    target_shifted = t.roll(target, -(source_width//2 - interp_pred_idx), -1)
+
+    f, axarr = plt.subplots(3)
     axarr[0].imshow(source.permute(1, 2, 0), aspect="auto")
     axarr[1].imshow(target_shifted.permute(1, 2, 0), aspect="auto")
-    axarr[2].axvline(x=predicted_max - 256, ymin=0, ymax=1, c="r")
+    axarr[2].axvline(x=-(source_width//2 - interp_pred_idx), ymin=0, ymax=1, c="r", label="prediction")
     if displacement is not None:
-        axarr[2].axvline(x=displacement, ymin=0, ymax=1, c="b", ls="--")
-    axarr[2].plot(np.arange(-256, 256), pred)
+        axarr[2].axvline(x=int(displacement), ymin=0, ymax=1, c="b", ls="--", label="ground truth")
+    axarr[2].plot(np.arange(-source_width//2, source_width//2), interp_pred, label="displacement likelihood")
+    axarr[2].set_xlim((-source_width//2, source_width//2))
     axarr[2].set_xlabel("Displacement [px]")
     axarr[2].set_ylabel("Likelihood [-]")
     axarr[2].grid()
-    if displacement is None:
-        axarr[2].legend(["prediction", "likelihood"])
-    else:
-        axarr[2].legend(["prediction", "ground truth", "displacement likelihood"])
-    axarr[2].set_xlim((-256, 256))
-    if importance is not None:
-        axarr[3].plot(importance)
-        axarr[3].set_xlim((0, source_width - 1))
-    f.suptitle("Evaluation example")
+
+    axarr[2].legend()
+    f.suptitle(f"Estimated displacement: {predicted_shift}px")
     f.tight_layout()
-    Path(dir).mkdir(parents=True, exist_ok=True)
-    plt.savefig(dir + str(name) + ".png")
+    if save:
+        Path(dir).mkdir(parents=True, exist_ok=True)
+        plt.savefig(dir + str(name) + ".png")
+    else:
+        plt.show()
     plt.close()
 
 

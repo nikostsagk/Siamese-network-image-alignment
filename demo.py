@@ -8,8 +8,7 @@ from utils import interpolate_histogram, plot_displacement
 
 device = t.device("cuda") if t.cuda.is_available() else t.device("cpu")
 
-#MODEL_PATH = "./model_siam.pt"
-MODEL_PATH = "/home/nikos/shared/results_v1/models/siam_109.pt"
+MODEL_PATH = "./model_riseholme.pt"
 IMG1_PATH = "../shared/data_collection/teach_and_repeat_2022_70cm/62da663663002c794c29b6cd/t0-r2-c0_S.png"
 IMG2_PATH = "../shared/data_collection/teach_and_repeat_2022_70cm/62da663663002c794c29b6cd/t1-r1-c0_S.png"
 # -------------------------------

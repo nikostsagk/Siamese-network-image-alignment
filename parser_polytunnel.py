@@ -108,7 +108,7 @@ class RiseholmePolytunnel(ImgPairDataset):
     def displace_img(self, img):
         perc = 0.3
         displ = random.randint(int(-perc/2*self.width), int(perc/2*self.width))
-        return t.roll(img, displ, dims=2), displ
+        return t.roll(img, displ, dims=2), -displ
 
     def crop_img(self, img):
         crop_start = random.randint(0, self.width - self.crop_width)

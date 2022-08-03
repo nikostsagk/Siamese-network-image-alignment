@@ -8,6 +8,7 @@ from torch.nn import functional as F
 from copy import deepcopy
 import os
 import errno
+from pathlib import Path
 
 
 def create_conv_block(in_channel, out_channel, kernel, stride, padding, pooling, bn=True, relu=True,
@@ -186,13 +187,14 @@ def get_parametrized_model(lp, fs, ech, res, pad, device):
     return model
 
 
-def save_model(model, name, epoch, optimizer=None):
+def save_model(model, name, epoch, optimizer=None, dir="./results/"):
+    Path(f"{dir}").mkdir(parents=True, exist_ok=True)
     t.save({
         'epoch': epoch,
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict() if optimizer is not None else None
-    }, "./results_" + name + "/model_" + str(epoch) + ".pt")
-    print("Model saved to: " + "./results_" + name + "/model_" + str(epoch) + ".pt")
+    }, f"{dir}{name}_{epoch}.pt")
+    print(f"Model saved to: {dir}{name}_{epoch}.pt")
 
 
 def load_model(model, path, optimizer=None):
